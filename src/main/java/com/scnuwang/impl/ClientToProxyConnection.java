@@ -1,10 +1,7 @@
 package com.scnuwang.impl;
 
 import com.google.common.io.BaseEncoding;
-import com.scnuwang.ActivityTracker;
-import com.scnuwang.FlowContext;
-import com.scnuwang.HttpFilters;
-import com.scnuwang.HttpFiltersAdapter;
+import com.scnuwang.*;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.Channel;
@@ -406,7 +403,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
                     httpObject = httpResponse = duplicateResponse;
                 }
 
-                HttpHeaders.setTransferEncodingChunked(httpResponse);
+                HttpUtil.setTransferEncodingChunked(httpResponse,true);
             }
 
             fixHttpVersionHeaderIfNecessary(httpResponse);
@@ -888,90 +885,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         return false;
     }
 
-    /***************************************************************************
-     * Authentication
-     **************************************************************************/
 
-    /**
-     * <p>
-     * Checks whether the given HttpRequest requires authentication.
-     * </p>
-     * 
-     * <p>
-     * If the request contains credentials, these are checked.
-     * </p>
-     * 
-     * <p>
-     * If authentication is still required, either because no credentials were
-     * provided or the credentials were wrong, this writes a 407 response to the
-     * client.
-     * </p>
-     * 
-     * @param request
-     * @return
-     */
-    private boolean authenticationRequired(HttpRequest request) {
-
-        if (authenticated.get()) {
-            return false;
-        }
-
-        final ProxyAuthenticator authenticator = proxyServer
-                .getProxyAuthenticator();
-
-        if (authenticator == null)
-            return false;
-
-        if (!request.headers().contains(HttpHeaders.Names.PROXY_AUTHORIZATION)) {
-            writeAuthenticationRequired(authenticator.getRealm());
-            return true;
-        }
-
-        List<String> values = request.headers().getAll(
-                HttpHeaders.Names.PROXY_AUTHORIZATION);
-        String fullValue = values.iterator().next();
-        String value = StringUtils.substringAfter(fullValue, "Basic ").trim();
-
-        byte[] decodedValue = BaseEncoding.base64().decode(value);
-
-        String decodedString = new String(decodedValue, Charset.forName("UTF-8"));
-        
-        String userName = StringUtils.substringBefore(decodedString, ":");
-        String password = StringUtils.substringAfter(decodedString, ":");
-        if (!authenticator.authenticate(userName, password)) {
-            writeAuthenticationRequired(authenticator.getRealm());
-            return true;
-        }
-
-        LOG.debug("Got proxy authorization!");
-        // We need to remove the header before sending the request on.
-        String authentication = request.headers().get(
-                HttpHeaders.Names.PROXY_AUTHORIZATION);
-        LOG.debug(authentication);
-        request.headers().remove(HttpHeaders.Names.PROXY_AUTHORIZATION);
-        authenticated.set(true);
-        return false;
-    }
-
-    private void writeAuthenticationRequired(String realm) {
-        String body = "<!DOCTYPE HTML \"-//IETF//DTD HTML 2.0//EN\">\n"
-                + "<html><head>\n"
-                + "<title>407 Proxy Authentication Required</title>\n"
-                + "</head><body>\n"
-                + "<h1>Proxy Authentication Required</h1>\n"
-                + "<p>This server could not verify that you\n"
-                + "are authorized to access the document\n"
-                + "requested.  Either you supplied the wrong\n"
-                + "credentials (e.g., bad password), or your\n"
-                + "browser doesn't understand how to supply\n"
-                + "the credentials required.</p>\n" + "</body></html>\n";
-        FullHttpResponse response = ProxyUtils.createFullHttpResponse(HttpVersion.HTTP_1_1,
-                HttpResponseStatus.PROXY_AUTHENTICATION_REQUIRED, body);
-        HttpHeaders.setDate(response, new Date());
-        response.headers().set("Proxy-Authenticate",
-                "Basic realm=\"" + (realm == null ? "Restricted Files" : realm) + "\"");
-        write(response);
-    }
 
     /***************************************************************************
      * Request/Response Rewriting
@@ -987,8 +901,8 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         if (original instanceof FullHttpRequest) {
             return ((FullHttpRequest) original).copy();
         } else {
-            HttpRequest request = new DefaultHttpRequest(original.getProtocolVersion(),
-                    original.getMethod(), original.getUri());
+            HttpRequest request = new DefaultHttpRequest(original.protocolVersion(),
+                    original.method(), original.uri());
             request.headers().set(original.headers());
             return request;
         }
@@ -1002,11 +916,10 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      * @param httpResponse
      */
     private void fixHttpVersionHeaderIfNecessary(HttpResponse httpResponse) {
-        String te = httpResponse.headers().get(
-                HttpHeaders.Names.TRANSFER_ENCODING);
+        String te = httpResponse.headers().get(HttpHeaderNames.TRANSFER_ENCODING);
         if (StringUtils.isNotBlank(te)
                 && te.equalsIgnoreCase(HttpHeaders.Values.CHUNKED)) {
-            if (httpResponse.getProtocolVersion() != HttpVersion.HTTP_1_1) {
+            if (httpResponse.protocolVersion() != HttpVersion.HTTP_1_1) {
                 LOG.debug("Fixing HTTP version.");
                 httpResponse.setProtocolVersion(HttpVersion.HTTP_1_1);
             }
@@ -1020,23 +933,23 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      * @param httpRequest
      */
     private void modifyRequestHeadersToReflectProxying(HttpRequest httpRequest) {
-        if (!currentServerConnection.hasUpstreamChainedProxy()) {
-            /*
-             * We are making the request to the origin server, so must modify
-             * the 'absolute-URI' into the 'origin-form' as per RFC 7230
-             * section 5.3.1.
-             *
-             * This must happen even for 'transparent' mode, otherwise the origin
-             * server could infer that the request came via a proxy server.
-             */
-            LOG.debug("Modifying request for proxy chaining");
-            // Strip host from uri
-            String uri = httpRequest.getUri();
-            String adjustedUri = ProxyUtils.stripHost(uri);
-            LOG.debug("Stripped host from uri: {}    yielding: {}", uri,
-                    adjustedUri);
-            httpRequest.setUri(adjustedUri);
-        }
+
+        /*
+         * We are making the request to the origin server, so must modify
+         * the 'absolute-URI' into the 'origin-form' as per RFC 7230
+         * section 5.3.1.
+         *
+         * This must happen even for 'transparent' mode, otherwise the origin
+         * server could infer that the request came via a proxy server.
+         */
+        LOG.debug("Modifying request for proxy chaining");
+        // Strip host from uri
+        String uri = httpRequest.uri();
+        String adjustedUri = ProxyUtils.stripHost(uri);
+        LOG.debug("Stripped host from uri: {}    yielding: {}", uri,
+                adjustedUri);
+        httpRequest.setUri(adjustedUri);
+
         if (!proxyServer.isTransparent()) {
             LOG.debug("Modifying request headers for proxying");
 
@@ -1074,8 +987,8 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
              * assigned one by the recipient if the message will be cached by
              * that recipient or gatewayed via a protocol which requires a Date.
              */
-            if (!headers.contains(HttpHeaders.Names.DATE)) {
-                HttpHeaders.setDate(httpResponse, new Date());
+            if (!headers.contains(HttpHeaderNames.DATE)) {
+                httpResponse.headers().set(HttpHeaderNames.DATE, new Date());
             }
         }
     }
@@ -1093,7 +1006,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         if (headers.contains(proxyConnectionKey)) {
             String header = headers.get(proxyConnectionKey);
             headers.remove(proxyConnectionKey);
-            headers.set(HttpHeaders.Names.CONNECTION, header);
+            headers.set(HttpHeaderNames.CONNECTION, header);
         }
     }
 
@@ -1109,8 +1022,8 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      *            The headers to modify
      */
     private void stripConnectionTokens(HttpHeaders headers) {
-        if (headers.contains(HttpHeaders.Names.CONNECTION)) {
-            for (String headerValue : headers.getAll(HttpHeaders.Names.CONNECTION)) {
+        if (headers.contains(HttpHeaderNames.CONNECTION)) {
+            for (String headerValue : headers.getAll(HttpHeaderNames.CONNECTION)) {
                 for (String connectionToken : ProxyUtils.splitCommaSeparatedHeaderValues(headerValue)) {
                     // do not strip out the Transfer-Encoding header if it is specified in the Connection header, since LittleProxy does not
                     // normally modify the Transfer-Encoding of the message.
@@ -1151,7 +1064,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      * @return true if the connection will be kept open, or false if it will be disconnected
      */
     private boolean writeBadGateway(HttpRequest httpRequest) {
-        String body = "Bad Gateway: " + httpRequest.getUri();
+        String body = "Bad Gateway: " + httpRequest.uri();
         FullHttpResponse response = ProxyUtils.createFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.BAD_GATEWAY, body);
 
         if (ProxyUtils.isHEAD(httpRequest)) {
@@ -1170,7 +1083,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
      * @return true if the connection will be kept open, or false if it will be disconnected
      */
     private boolean writeBadRequest(HttpRequest httpRequest) {
-        String body = "Bad Request to URI: " + httpRequest.getUri();
+        String body = "Bad Request to URI: " + httpRequest.uri();
         FullHttpResponse response = ProxyUtils.createFullHttpResponse(HttpVersion.HTTP_1_1, HttpResponseStatus.BAD_REQUEST, body);
 
         if (ProxyUtils.isHEAD(httpRequest)) {
@@ -1225,16 +1138,16 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
 
         // allow short-circuit messages to close the connection. normally the Connection header would be stripped when modifying
         // the message for proxying, so save the keep-alive status before the modifications are made.
-        boolean isKeepAlive = HttpHeaders.isKeepAlive(httpResponse);
+        boolean isKeepAlive = HttpUtil.isKeepAlive(httpResponse);
 
         // if the response is not a Bad Gateway or Gateway Timeout, modify the headers "as if" the short-circuit response were proxied
-        int statusCode = httpResponse.getStatus().code();
+        int statusCode = httpResponse.status().code();
         if (statusCode != HttpResponseStatus.BAD_GATEWAY.code() && statusCode != HttpResponseStatus.GATEWAY_TIMEOUT.code()) {
             modifyResponseHeadersToReflectProxying(httpResponse);
         }
 
         // restore the keep alive status, if it was overwritten when modifying headers for proxying
-        HttpHeaders.setKeepAlive(httpResponse, isKeepAlive);
+        HttpUtil.setKeepAlive(httpResponse, isKeepAlive);
 
         write(httpResponse);
 
@@ -1242,7 +1155,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
             writeEmptyBuffer();
         }
 
-        if (!HttpHeaders.isKeepAlive(httpResponse)) {
+        if (!HttpUtil.isKeepAlive(httpResponse)) {
             disconnect();
             return false;
         }
@@ -1260,7 +1173,7 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         String hostAndPort = ProxyUtils.parseHostAndPort(httpRequest);
         if (StringUtils.isBlank(hostAndPort)) {
             List<String> hosts = httpRequest.headers().getAll(
-                    HttpHeaders.Names.HOST);
+                    HttpHeaderNames.HOST);
             if (hosts != null && !hosts.isEmpty()) {
                 hostAndPort = hosts.get(0);
             }
@@ -1358,24 +1271,13 @@ public class ClientToProxyConnection extends ProxyConnection<HttpRequest> {
         }
     }
 
-    private void recordClientSSLHandshakeSucceeded() {
-        try {
-            InetSocketAddress clientAddress = getClientAddress();
-            for (ActivityTracker tracker : proxyServer.getActivityTrackers()) {
-                tracker.clientSSLHandshakeSucceeded(clientAddress, clientSslSession);
-            }
-        } catch (Exception e) {
-            LOG.error("Unable to recorClientSSLHandshakeSucceeded", e);
-        }
-    }
 
     private void recordClientDisconnected() {
         try {
             InetSocketAddress clientAddress = getClientAddress();
             for (ActivityTracker tracker : proxyServer
                     .getActivityTrackers()) {
-                tracker.clientDisconnected(
-                        clientAddress, clientSslSession);
+                tracker.clientDisconnected(clientAddress);
             }
         } catch (Exception e) {
             LOG.error("Unable to recordClientDisconnected", e);

@@ -1,5 +1,6 @@
 package com.scnuwang.impl;
 
+import com.scnuwang.HttpFilters;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
@@ -10,11 +11,12 @@ import io.netty.util.ReferenceCounted;
 import io.netty.util.concurrent.Future;
 import io.netty.util.concurrent.GenericFutureListener;
 import io.netty.util.concurrent.Promise;
-import org.littleshoot.proxy.HttpFilters;
+
 
 import javax.net.ssl.SSLEngine;
 
-import static org.littleshoot.proxy.impl.ConnectionState.*;
+import static com.scnuwang.impl.ConnectionState.*;
+
 
 /**
  * <p>

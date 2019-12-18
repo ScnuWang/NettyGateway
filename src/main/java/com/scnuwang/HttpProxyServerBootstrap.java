@@ -106,21 +106,6 @@ public interface HttpProxyServerBootstrap {
      */
     HttpProxyServerBootstrap withFiltersSource( HttpFiltersSource filtersSource);
 
-    /**
-     * <p>
-     * Specify whether or not to use secure DNS lookups for outbound
-     * connections.
-     * </p>
-     * 
-     * <p>
-     * Default = false
-     * </p>
-     * 
-     * @param useDnsSec
-     * @return
-     */
-    HttpProxyServerBootstrap withUseDnsSec(
-            boolean useDnsSec);
 
     /**
      * <p>

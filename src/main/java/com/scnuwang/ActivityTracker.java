@@ -38,10 +38,8 @@ public interface ActivityTracker {
      * Record that a client disconnected.
      *
      * @param clientAddress
-     * @param sslSession
      */
-    void clientDisconnected(InetSocketAddress clientAddress,
-                            SSLSession sslSession);
+    void clientDisconnected(InetSocketAddress clientAddress);
 
     /**
      * Record that the proxy received bytes from the client.

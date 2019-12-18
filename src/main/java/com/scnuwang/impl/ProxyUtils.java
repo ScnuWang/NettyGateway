@@ -314,8 +314,7 @@ public class ProxyUtils {
 
     public static boolean isCONNECT(HttpObject httpObject) {
         return httpObject instanceof HttpRequest
-                && HttpMethod.CONNECT.equals(((HttpRequest) httpObject)
-                        .getMethod());
+                && HttpMethod.CONNECT.equals(((HttpRequest) httpObject).method());
     }
 
     /**
@@ -325,7 +324,7 @@ public class ProxyUtils {
      * @return true if request is a HEAD, otherwise false
      */
     public static boolean isHEAD(HttpRequest httpRequest) {
-        return HttpMethod.HEAD.equals(httpRequest.getMethod());
+        return HttpMethod.HEAD.equals(httpRequest.method());
     }
 
     private static boolean checkTrueOrFalse(final String val,
