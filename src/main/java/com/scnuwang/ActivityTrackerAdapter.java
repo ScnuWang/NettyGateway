@@ -61,8 +61,7 @@ public class ActivityTrackerAdapter implements ActivityTracker {
     }
 
     @Override
-    public void clientDisconnected(InetSocketAddress clientAddress,
-            SSLSession sslSession) {
+    public void clientDisconnected(InetSocketAddress clientAddress) {
     }
 
 }
